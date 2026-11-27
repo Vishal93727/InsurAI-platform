@@ -1,0 +1,6 @@
+# spring-webmvc 6.2.x has no open-source fix for these; the fixed line is 7.0.x (Spring Boot 4).
+# CVE-2026-47884 needs XsltView and CVE-2026-47890 needs view fragments streamed over SSE.
+# None of the three modules (portal, core, fraud engine) renders a server-side view or exposes an SSE endpoint:
+# the platform is JSON REST plus a STOMP WebSocket. Re-check this if that ever changes. Revisit on Boot 4.
+CVE-2026-47884
+CVE-2026-47890

@@ -1,0 +1,50 @@
+# Observability overlay: Prometheus, Tempo (traces) and Grafana.
+#
+#     docker compose -f docker-compose.yml -f docker-compose.monitoring.yml --env-file <your env file> up -d
+#
+# (scripts/up.sh does this when you pass MONITORING=1.) Grafana: http://localhost:3000, Prometheus: :9090.
+services:
+  backend:
+    environment:
+      # Tracing is off by default so the backend needs no collector; the overlay turns it on and points it here.
+      PLATFORM_TRACE_SAMPLE: "1.0"
+      PLATFORM_OTLP_ENDPOINT: http://tempo:4318/v1/traces
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus-rules.yml:/etc/prometheus/prometheus-rules.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  tempo:
+    image: grafana/tempo:latest
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./monitoring/tempo.yml:/etc/tempo/tempo.yml:ro
+    ports:
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:3200:3200"
+
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - prometheus
+      - tempo
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      # Local-only convenience; the port is bound to 127.0.0.1. Change it before exposing Grafana anywhere.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+volumes:
+  grafana-data:

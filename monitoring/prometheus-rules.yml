@@ -1,0 +1,42 @@
+# Starting-point alerts for the platform. The thresholds are reasonable defaults, not measured objectives:
+# tune them against your own traffic before relying on them.
+groups:
+  - name: insurai-platform
+    interval: 15s
+    rules:
+      - record: job:http_5xx_ratio:5m
+        expr: |
+          sum(rate(http_server_requests_seconds_count{application="insurai-platform",status=~"5.."}[5m]))
+            /
+          clamp_min(sum(rate(http_server_requests_seconds_count{application="insurai-platform"}[5m])), 1)
+
+      - record: job:fraud_pipeline_p99_seconds:5m
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(fraud_pipeline_duration_seconds_bucket{application="insurai-platform"}[5m])))
+
+      - alert: PlatformHighErrorRatio
+        expr: job:http_5xx_ratio:5m > 0.01
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "More than 1% of requests are failing with 5xx"
+          description: "5xx ratio is {{ $value | humanizePercentage }} over the last 5m."
+
+      - alert: FraudPipelineSlow
+        expr: job:fraud_pipeline_p99_seconds:5m > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Fraud pipeline p99 above 500ms"
+          description: "p99 is {{ $value | humanizeDuration }} over the last 5m."
+
+      - alert: PlatformDown
+        expr: up{job="insurai-platform",mode!="host"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The backend is not answering Prometheus scrapes"

@@ -1,0 +1,184 @@
+name: insurai-platform
+
+# Two ways to use this file:
+#
+#   Full stack (what scripts/up.sh does; secrets are generated, nothing here has a default):
+#       scripts/up.sh
+#
+#   Infrastructure only, for running the backend from your IDE / `mvn spring-boot:run` (profile `local`):
+#       cp .env.example .env
+#       docker compose up -d postgres redis kafka s3 mailpit
+#
+# Every published port binds to 127.0.0.1 only.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: insurai
+      POSTGRES_USER: insurai
+      POSTGRES_PASSWORD: ${PLATFORM_DB_PASSWORD:?run scripts/up.sh, or copy .env.example to .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U insurai"]
+      interval: 3s
+      retries: 30
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 30
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis:/data
+
+  # Single-node KRaft broker. Two listeners: kafka:19092 for other containers, localhost:9092 for the host.
+  kafka:
+    image: apache/kafka:3.8.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:19092,HOST://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092,HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_HEAP_OPTS: -Xmx384m -Xms384m
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+    ports:
+      - "127.0.0.1:${KAFKA_PORT:-9092}:9092"
+    volumes:
+      - kafka:/var/lib/kafka/data
+
+  # RustFS, an S3-compatible object store, standing in for S3. Published because presigned upload/download
+  # links are opened from the host.
+  s3:
+    image: rustfs/rustfs:1.0.4
+    environment:
+      RUSTFS_ACCESS_KEY: ${PLATFORM_S3_ACCESS_KEY:?set PLATFORM_S3_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${PLATFORM_S3_SECRET_KEY:?set PLATFORM_S3_SECRET_KEY}
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 9000"]
+      interval: 3s
+      retries: 40
+    ports:
+      - "127.0.0.1:${S3_PORT:-9000}:9000"
+    volumes:
+      - s3:/data
+
+  # Catches every outgoing e-mail. Inbox UI on :8025, SMTP on :1025.
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
+
+  backend:
+    build: ./backend
+    image: insurai-platform:local
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      s3: { condition: service_healthy }
+      mailpit: { condition: service_started }
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      PORT: 8080
+      JAVA_TOOL_OPTIONS: -Xmx768m -XX:+ExitOnOutOfMemoryError
+      # infrastructure
+      PLATFORM_DB_URL: jdbc:postgresql://postgres:5432/insurai
+      PLATFORM_DB_USER: insurai
+      PLATFORM_DB_PASSWORD: ${PLATFORM_DB_PASSWORD}
+      PLATFORM_REDIS_HOST: redis
+      PLATFORM_KAFKA: kafka:19092
+      # Defaults to the Mailpit catch-all. For real mail set host/port/user/password and the two flags.
+      PLATFORM_SMTP_HOST: ${PLATFORM_SMTP_HOST:-mailpit}
+      PLATFORM_SMTP_PORT: ${PLATFORM_SMTP_PORT:-1025}
+      PLATFORM_SMTP_USER: ${PLATFORM_SMTP_USER:-}
+      PLATFORM_SMTP_PASSWORD: ${PLATFORM_SMTP_PASSWORD:-}
+      PLATFORM_SMTP_AUTH: ${PLATFORM_SMTP_AUTH:-false}
+      PLATFORM_SMTP_STARTTLS: ${PLATFORM_SMTP_STARTTLS:-false}
+      PLATFORM_MAIL_FROM: ${PLATFORM_MAIL_FROM:-claims@insurai.example.test}
+      PLATFORM_S3_ENDPOINT: http://s3:9000
+      PLATFORM_S3_PUBLIC_ENDPOINT: http://127.0.0.1:${S3_PORT:-9000}
+      PLATFORM_S3_ACCESS_KEY: ${PLATFORM_S3_ACCESS_KEY}
+      PLATFORM_S3_SECRET_KEY: ${PLATFORM_S3_SECRET_KEY}
+      # identity and secrets: required, no defaults
+      PLATFORM_JWT_SECRET: ${PLATFORM_JWT_SECRET:?set PLATFORM_JWT_SECRET (>= 32 chars)}
+      PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:?set PLATFORM_ADMIN_EMAIL}
+      PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:?set PLATFORM_ADMIN_PASSWORD}
+      PLATFORM_PARTY_HMAC_KEY: ${PLATFORM_PARTY_HMAC_KEY:?set PLATFORM_PARTY_HMAC_KEY}
+      FRAUD_ADMIN_TOKEN: ${FRAUD_ADMIN_TOKEN:?set FRAUD_ADMIN_TOKEN}
+      # behaviour
+      PLATFORM_BOOTSTRAP_MANAGERS: ${PLATFORM_BOOTSTRAP_MANAGERS:-manager@demo.example.test}
+      PLATFORM_CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-5173},http://127.0.0.1:${FRONTEND_PORT:-5173}
+      PLATFORM_OPEN_DEV_ENDPOINTS: ${PLATFORM_OPEN_DEV_ENDPOINTS:-false}
+      PLATFORM_API_DOCS: ${PLATFORM_OPEN_DEV_ENDPOINTS:-false}
+      PLATFORM_QUOTES_PER_MINUTE: ${PLATFORM_QUOTES_PER_MINUTE:-30}
+      PLATFORM_QUOTES_BURST: ${PLATFORM_QUOTES_BURST:-10}
+      # optional portal integrations: leave empty to run without them
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ACCESS_KEY: ${SUPABASE_ACCESS_KEY:-}
+      SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:-}
+      SUPABASE_BUCKET: ${SUPABASE_BUCKET:-Insur_AI}
+      SUPABASE_REGION: ${SUPABASE_REGION:-ap-south-1}
+      COHERE_API_KEY: ${COHERE_API_KEY:-}
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - uploads:/app/uploads
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # What the BROWSER uses to reach the backend (not the in-network name).
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+    image: insurai-platform-frontend:local
+    depends_on:
+      backend: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-5173}:8080"
+
+  # ---- optional developer tools: docker compose --profile tools up -d ----------------------------------------
+  kafka-ui:
+    profiles: ["tools"]
+    image: provectuslabs/kafka-ui:latest
+    depends_on:
+      kafka: { condition: service_healthy }
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:19092
+      DYNAMIC_CONFIG_ENABLED: "true"
+    ports:
+      - "127.0.0.1:8081:8080"
+
+  redisinsight:
+    profiles: ["tools"]
+    image: redis/redisinsight:latest
+    depends_on:
+      redis: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:5540:5540"
+
+volumes:
+  postgres:
+  redis:
+  kafka:
+  s3:
+  uploads:
