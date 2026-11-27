@@ -185,8 +185,3 @@ Each module documents its own (see the module notes). The ones that matter most 
   another's notifications. Carried over from the original portal.
 - `spring-webmvc` 6.2.x has two open CVEs with fixes only in 7.0. They need XSLT views or view fragments over
   SSE, which none of the modules use; they are waived in `.trivyignore` until a move to Spring Boot 4.
-
-## Licence
-
-MIT. The three source projects carry three different copyright holders and all three notices are kept; see
-[LICENSE](LICENSE), [NOTICE.md](NOTICE.md) and [`licenses/`](licenses/).
