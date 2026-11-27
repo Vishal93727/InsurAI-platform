@@ -22,7 +22,7 @@
         <start-class>com.insurai.platform.PlatformApplication</start-class>
 
         <archunit.version>1.4.1</archunit.version>
-        <openpdf.version>2.0.5</openpdf.version>
+        <openpdf.version>3.0.6</openpdf.version>
         <awssdk.version>2.46.7</awssdk.version>
         <jjwt.version>0.11.5</jjwt.version>
         <springdoc.version>2.8.9</springdoc.version>
