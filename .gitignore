@@ -1,0 +1,20 @@
+# build output
+backend/target/
+frontend/node_modules/
+frontend/dist/
+
+# local configuration and secrets: never commit
+.env
+.env.local
+*.local.env
+
+# runtime data
+backend/uploads/
+uploads/
+
+# IDE / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.iml
+.DS_Store

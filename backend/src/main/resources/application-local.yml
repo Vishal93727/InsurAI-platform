@@ -1,0 +1,43 @@
+# ---------------------------------------------------------------------------------------------------------------
+# DEVELOPMENT ONLY. Active by default so `mvn spring-boot:run` and the test suites work out of the box against
+# the services in docker-compose (see `docker compose up -d postgres redis kafka s3 mailpit`).
+#
+# Everything below is a known, public value. Never run a deployment with this profile: set
+# SPRING_PROFILES_ACTIVE to anything else (the container image does) and provide real secrets via the environment.
+# ---------------------------------------------------------------------------------------------------------------
+spring:
+  datasource:
+    password: insurai-local
+
+platform:
+  security:
+    jwt:
+      secret: local-only-jwt-secret-do-not-use-in-prod-0123456789
+    admin:
+      email: admin@insurai.local
+      password: LocalAdmin-1
+    cors-allowed-origins: http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173
+    open-dev-endpoints: true
+
+claimpilot:
+  security:
+    party-hmac-key: local-only-party-hmac-key-do-not-use-in-prod
+    bootstrap-managers: admin@insurai.local
+  storage:
+    access-key: local-s3-access
+    secret-key: local-s3-secret-key
+
+fraud:
+  admin:
+    token: local-dev-admin-token
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+logging:
+  level:
+    com.insurai.platform.fraudengine: DEBUG
+    org.springframework.kafka: WARN

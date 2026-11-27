@@ -1,0 +1,48 @@
+package com.insurai.platform.core.policy.application;
+
+import com.insurai.platform.core.policy.domain.EndorsementChange;
+import com.insurai.platform.core.policy.domain.Policy;
+import com.insurai.platform.core.policy.domain.PolicyStatus;
+import com.insurai.platform.core.policy.domain.PolicyVersion;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+public interface PolicyRepository {
+
+    void insert(Policy p);
+
+    Optional<Policy> find(UUID id);
+
+    List<Policy> forSubject(String subject);
+
+    /** Rows we currently believe, in valid-time order. */
+    List<PolicyVersion> current(UUID policyId);
+
+    /** The row valid at {@code validAt} as recorded at {@code asOf}. */
+    Optional<PolicyVersion> at(UUID policyId, Instant validAt, Instant asOf);
+
+    List<PolicyVersion> history(UUID policyId);
+
+    /** Optimistic lock: bumps the version only if it is still {@code expected}. */
+    boolean bump(UUID id, long expected);
+
+    /** Ends the record-time of current rows; false if any of them was no longer current. */
+    boolean close(List<Long> ids, Instant recordedAt);
+
+    void insertVersions(UUID policyId, List<PolicyVersion> rows);
+
+    void insertEndorsement(UUID id, UUID policyId, Instant effectiveFrom, EndorsementChange change,
+                           long premiumDeltaMinor, Instant recordedAt, String createdBy);
+
+    void setStatus(UUID id, PolicyStatus status, Instant graceUntil);
+
+    /** Reads the policy row with {@code FOR UPDATE}, serialising renewals, payments and lapses on it. */
+    Optional<Policy> lock(UUID id);
+
+    /** Moves the policy into a new term (and bumps its lock version so a stale endorsement can't land). */
+    void startTerm(UUID id, int productVersion, Instant termStart, Instant termEnd, PolicyStatus status,
+                   Instant graceUntil);
+}

@@ -1,0 +1,210 @@
+# ---------------------------------------------------------------------------------------------------------------
+# insurai-platform - one application, three modules (portal, core, fraudengine).
+#
+# Secrets have NO defaults here on purpose: outside the `local` profile the app refuses to start until they are
+# provided (see .env.example). Development values live in application-local.yml, which is active unless
+# SPRING_PROFILES_ACTIVE says otherwise.
+# ---------------------------------------------------------------------------------------------------------------
+spring:
+  application:
+    name: insurai-platform
+  profiles:
+    active: local
+  main:
+    # The portal's services reference each other through field injection (a legacy of the original code).
+    allow-circular-references: true
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${PLATFORM_DB_URL:jdbc:postgresql://localhost:5432/insurai}
+    username: ${PLATFORM_DB_USER:insurai}
+    password: ${PLATFORM_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${PLATFORM_DB_POOL:20}
+  jpa:
+    # Flyway owns the core and fraud tables (db/migration). The portal's tables (portal_*) are still created by
+    # Hibernate, as in the original project. Move them into Flyway with scripts/export-portal-schema.sh and then
+    # set PLATFORM_DDL_AUTO=validate. See docs/MERGE-NOTES.md.
+    hibernate:
+      ddl-auto: ${PLATFORM_DDL_AUTO:update}
+    # Kept on because the portal's controllers serialise entities with lazy associations.
+    open-in-view: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+        # Carried over from the portal's production profile.
+        jdbc:
+          batch_size: 20
+          fetch_size: 50
+        order_inserts: true
+        order_updates: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  batch:
+    job:
+      # Jobs are launched by their schedulers/endpoints, never at startup.
+      enabled: false
+    jdbc:
+      # The Spring Batch schema is owned by Flyway (V2). Letting Boot run its DDL would fail on the second start.
+      initialize-schema: never
+  data:
+    redis:
+      host: ${PLATFORM_REDIS_HOST:localhost}
+      port: ${PLATFORM_REDIS_PORT:6379}
+  kafka:
+    bootstrap-servers: ${PLATFORM_KAFKA:localhost:9092}
+    # Only settings every module can share live here. Serializers and ack modes are NOT global: the core module
+    # uses String payloads with record acks, the fraud engine JSON with manual acks. The fraud engine declares
+    # its own template and listener factories (fraudengine/config/KafkaConfig).
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      max-poll-records: 10
+    listener:
+      ack-mode: record
+      # Continues the trace started by the producer instead of beginning a new one.
+      observation-enabled: true
+    template:
+      observation-enabled: true
+  mail:
+    host: ${PLATFORM_SMTP_HOST:localhost}
+    port: ${PLATFORM_SMTP_PORT:1025}
+    username: ${PLATFORM_SMTP_USER:}
+    password: ${PLATFORM_SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${PLATFORM_SMTP_AUTH:false}
+      mail.smtp.starttls.enable: ${PLATFORM_SMTP_STARTTLS:false}
+      # When STARTTLS is on, insist on it: never silently fall back to sending credentials in clear text.
+      mail.smtp.starttls.required: ${PLATFORM_SMTP_STARTTLS:false}
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
+  servlet:
+    multipart:
+      # The portal accepts claim-document uploads. (The core module uses presigned URLs and needs no multipart.)
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: insurai-platform
+    distribution:
+      # Without buckets a Timer exports only count/sum, and histogram_quantile in the SLO rules would match no
+      # series at all.
+      percentiles-histogram:
+        http.server.requests: true
+        fraud.pipeline.duration: true
+      percentiles:
+        claimpilot.policy.read: 0.5,0.95,0.99
+        claimpilot.claims.cycle_time: 0.5,0.95
+  tracing:
+    sampling:
+      # 0 = tracing off (nothing is exported, so no collector is needed). The monitoring overlay sets it to 1.0.
+      probability: ${PLATFORM_TRACE_SAMPLE:0.0}
+  otlp:
+    tracing:
+      endpoint: ${PLATFORM_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+
+springdoc:
+  api-docs:
+    enabled: ${PLATFORM_API_DOCS:false}
+  swagger-ui:
+    enabled: ${PLATFORM_API_DOCS:false}
+    path: /swagger-ui.html
+
+# ---- platform identity -----------------------------------------------------------------------------------------
+platform:
+  security:
+    jwt:
+      secret: ${PLATFORM_JWT_SECRET}        # >= 32 chars. Signs every token the portal issues.
+      ttl: ${PLATFORM_JWT_TTL:PT24H}
+      issuer: insurai-platform
+    admin:
+      email: ${PLATFORM_ADMIN_EMAIL}
+      password: ${PLATFORM_ADMIN_PASSWORD}  # >= 8 chars. Bootstrap administrator for the portal.
+    # Comma-separated origin patterns allowed to call the API from a browser.
+    cors-allowed-origins: ${PLATFORM_CORS_ORIGINS:http://localhost:5173}
+    # Fraud dashboard + its WebSocket + Swagger UI reachable without a token. Development only.
+    open-dev-endpoints: ${PLATFORM_OPEN_DEV_ENDPOINTS:false}
+
+# ---- portal module ---------------------------------------------------------------------------------------------
+supabase:
+  url: ${SUPABASE_URL:}
+  accessKey: ${SUPABASE_ACCESS_KEY:}
+  secretKey: ${SUPABASE_SECRET_KEY:}
+  bucket: ${SUPABASE_BUCKET:Insur_AI}
+  region: ${SUPABASE_REGION:ap-south-1}
+cohere:
+  api:
+    key: ${COHERE_API_KEY:}
+
+# ---- core module -----------------------------------------------------------------------------------------------
+claimpilot:
+  security:
+    party-hmac-key: ${PLATFORM_PARTY_HMAC_KEY}
+    bootstrap-managers: ${PLATFORM_BOOTSTRAP_MANAGERS:}
+  storage:
+    endpoint: ${PLATFORM_S3_ENDPOINT:http://localhost:9000}
+    public-endpoint: ${PLATFORM_S3_PUBLIC_ENDPOINT:${PLATFORM_S3_ENDPOINT:http://localhost:9000}}
+    region: ${PLATFORM_S3_REGION:us-east-1}
+    bucket: ${PLATFORM_S3_BUCKET:insurai}
+    access-key: ${PLATFORM_S3_ACCESS_KEY}
+    secret-key: ${PLATFORM_S3_SECRET_KEY}
+    presign-ttl: ${PLATFORM_PRESIGN_TTL:PT5M}
+    max-document-bytes: ${PLATFORM_MAX_DOC_BYTES:10485760}
+  mail:
+    from: ${PLATFORM_MAIL_FROM:claims@insurai.example.test}
+  quotes:
+    per-minute: ${PLATFORM_QUOTES_PER_MINUTE:30}
+    burst: ${PLATFORM_QUOTES_BURST:10}
+    validity: ${PLATFORM_QUOTE_VALIDITY:P15D}
+  renewals:
+    grid-size: ${PLATFORM_RENEWAL_GRID:4}
+    chunk-size: ${PLATFORM_RENEWAL_CHUNK:50}
+    grace-days: ${PLATFORM_GRACE_DAYS:15}
+    reminder-days-before: ${PLATFORM_REMINDER_DAYS:30}
+  fraud:
+    rebuild-interval: ${PLATFORM_FRAUD_REBUILD:PT10M}
+  jobs:
+    enabled: ${PLATFORM_JOBS_ENABLED:true}
+
+# ---- fraud engine module (business rules are tunable without a code deploy) -----------------------------------
+fraud:
+  admin:
+    # Shared secret for /api/v1/admin/** (X-Admin-Token header).
+    token: ${FRAUD_ADMIN_TOKEN}
+  kafka:
+    consumer-group: ${FRAUD_CONSUMER_GROUP:fraud-engine}
+  weights:
+    blacklisted-merchant: 40
+    high-velocity: 30
+    amount-exceeded: 20
+    high-risk-location: 10
+  threshold: 75
+  velocity:
+    window-seconds: 300
+    max-transactions: 10
+
+logging:
+  level:
+    com.insurai.platform: INFO

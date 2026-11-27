@@ -1,0 +1,39 @@
+package com.insurai.platform.portal.model;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@Entity
+@Table(name = "portal_hrs")
+public class Hr {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false)
+    private String name; // Full Name
+
+    @Column(nullable = false, unique = true)
+    private String email; // Corporate Email
+
+    @Column(nullable = false)
+    private String phoneNumber; // Contact Number
+
+    @Column(nullable = false, unique = true)
+    private String hrId; // Unique HR ID
+
+    @Column(nullable = false)
+    private String password; // Encrypted Password
+
+    @Column(nullable = false)
+    private boolean active = true; // Active status for HR
+}
