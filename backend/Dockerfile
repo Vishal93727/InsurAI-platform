@@ -8,7 +8,7 @@ COPY src ./src
 RUN mvn -q -B -DskipTests package \
     && java -Djarmode=tools -jar target/insurai-platform-*.jar extract --layers --launcher --destination /extracted
 
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 # Pick up Alpine security fixes released after the base image was built.
 RUN apk upgrade --no-cache \
     && addgroup -S platform && adduser -S -G platform -u 10001 platform
