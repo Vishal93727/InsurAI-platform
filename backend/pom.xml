@@ -21,7 +21,7 @@
         <java.version>21</java.version>
         <start-class>com.insurai.platform.PlatformApplication</start-class>
 
-        <archunit.version>1.4.1</archunit.version>
+        <archunit.version>1.5.1</archunit.version>
         <openpdf.version>2.0.5</openpdf.version>
         <awssdk.version>2.46.7</awssdk.version>
         <jjwt.version>0.11.5</jjwt.version>
